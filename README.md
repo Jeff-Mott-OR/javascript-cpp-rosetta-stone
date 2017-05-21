@@ -386,7 +386,7 @@ JavaScript's function closures capture by reference, but the C++ sample above ac
 ###### JavaScript
 ```javascript
 let functions = [];
-for (let i = 0; i < 5; i++) {
+for (var i = 0; i < 5; i++) {
     // Every closure we push captures a reference to the same "i"
     functions.push(() => {
         console.log(i);
