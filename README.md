@@ -572,6 +572,26 @@ for_each(functions.begin(), functions.end(), [] (auto fn) {
 });
 ```
 
+If the C++ closures instead captured by reference -- which we can do by putting an `&` in the capture list -- then we'd get the same result as the JavaScript closures.
+
+###### C++
+```c++
+vector<js_function> functions;
+
+for (auto& i = *(new int{0}); i < 5; ++i) {
+    // Every closure we push captures a reference to the same "i"
+    functions.push_back([&i] (any this_, vector<any> arguments) {
+        cout << i;
+        return any{};
+    });
+}
+
+// 5, 5, 5, 5, 5
+for_each(functions.begin(), functions.end(), [] (auto fn) {
+    fn(nullptr, {});
+});
+```
+
 #### `let` and capturing by value
 
 Recently, JavaScript added the [`let` statement](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let), which brings block scoping to the language. But when it comes to for-loops, then `let` does more than mere block scoping. At every iteration of the loop, [JavaScript creates a brand new *copy* of the loop variable](http://www.ecma-international.org/ecma-262/7.0/index.html#sec-createperiterationenvironment). That's not normal block scoping behavior. Rather, this seems to emulate capture by value in a language that otherwise only supports capture by reference. A JavaScript closure within the loop will still capture by reference, but it won't capture the loop variable itself; it will capture a per-iteration *copy* of the loop variable.
@@ -599,11 +619,11 @@ vector<js_function> functions;
 
 for (auto i = 0; i < 5; ++i) {
     // Create a per-iteration copy of "i"
-    auto i_copy = new int{i};
+    auto& i_copy = *(new int{i});
 
     // Every closure we push captures a reference to a per-iteration copy of "i"
-    functions.push_back([i_copy] (any this_, vector<any> arguments) {
-        cout << *i_copy;
+    functions.push_back([&i_copy] (any this_, vector<any> arguments) {
+        cout << i_copy;
         return any{};
     });
 }

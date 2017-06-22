@@ -379,6 +379,29 @@ namespace closures_in_loop {
     }
 }
 
+namespace closures_byref_in_loop {
+    stringstream cout; // mock cout
+
+    BOOST_AUTO_TEST_CASE(closures_byref_in_loop_test) {
+        vector<js_function> functions;
+
+        for (auto& i = *(new int{0}); i < 5; ++i) {
+            // Every closure we push captures a reference to the same "i"
+            functions.push_back([&i] (any this_, vector<any> arguments) {
+                cout << i;
+                return any{};
+            });
+        }
+
+        // 5, 5, 5, 5, 5
+        for_each(functions.begin(), functions.end(), [] (auto fn) {
+            fn(nullptr, {});
+        });
+
+        BOOST_TEST(cout.str() == "55555"s);
+    }
+}
+
 namespace closures_peritercopy_in_loop {
     stringstream cout; // mock cout
 
@@ -387,11 +410,11 @@ namespace closures_peritercopy_in_loop {
 
         for (auto i = 0; i < 5; ++i) {
             // Create a per-iteration copy of "i"
-            auto i_copy = new int{i};
+            auto& i_copy = *(new int{i});
 
             // Every closure we push captures a reference to a per-iteration copy of "i"
-            functions.push_back([i_copy] (any this_, vector<any> arguments) {
-                cout << *i_copy;
+            functions.push_back([&i_copy] (any this_, vector<any> arguments) {
+                cout << i_copy;
                 return any{};
             });
         }
