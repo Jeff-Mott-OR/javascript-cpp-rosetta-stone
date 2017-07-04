@@ -72,27 +72,31 @@ BOOST_AUTO_TEST_CASE(any_test) {
 }
 
 BOOST_AUTO_TEST_CASE(objects_test) {
-    unordered_map<string, any> o {
-        {"firstName", "Jane"s},
-        {"lastName", "Doe"s}
+    unordered_map<string, any> myCar {
+        {"make", "Ford"s},
+        {"model", "Mustang"s},
+        {"year", 1969}
     };
 
-    BOOST_TEST(any_cast<string>(o["firstName"]) == "Jane"s);
-    BOOST_TEST(any_cast<string>(o["lastName"]) == "Doe"s);
+    BOOST_TEST(any_cast<string>(myCar["make"]) == "Ford"s);
+    BOOST_TEST(any_cast<string>(myCar["model"]) == "Mustang"s);
+    BOOST_TEST(any_cast<int>(myCar["year"]) == 1969);
 }
 
 BOOST_AUTO_TEST_CASE(arrays_test) {
     unordered_map<string, any> fruits {
-        {"0", "Apple"s},
-        {"1", "Banana"s}
+        {"0", "Mango"s},
+        {"1", "Apple"s},
+        {"2", "Orange"s}
     };
 
-    BOOST_TEST(any_cast<string>(fruits["0"]) == "Apple"s);
-    BOOST_TEST(any_cast<string>(fruits["1"]) == "Banana"s);
+    BOOST_TEST(any_cast<string>(fruits["0"]) == "Mango"s);
+    BOOST_TEST(any_cast<string>(fruits["1"]) == "Apple"s);
+    BOOST_TEST(any_cast<string>(fruits["2"]) == "Orange"s);
 
-    fruits["firstName"] = "Jane"s;
+    fruits["model"] = "Mustang"s;
 
-    BOOST_TEST(any_cast<string>(fruits["firstName"]) == "Jane"s);
+    BOOST_TEST(any_cast<string>(fruits["model"]) == "Mustang"s);
 }
 
 class Delegating_unordered_map : private unordered_map<string, any> {
@@ -144,101 +148,6 @@ BOOST_AUTO_TEST_CASE(prototypal_inheritance_test) {
 
 using js_object = Delegating_unordered_map;
 
-namespace closures {
-    stringstream cout; // mock cout
-
-    auto make_func() {
-        auto name = "Rosetta"s;
-
-        // A class that privately stores a name and
-        // can be called as if it were a function
-        class Display_name {
-            string name_;
-
-            public:
-                Display_name(const string& name)
-                    : name_{name}
-                {}
-
-                auto operator()() {
-                    cout << name_;
-                }
-        };
-
-        // This is our closure, an instance of the above class,
-        // a callable object that remembers a value from its environment
-        Display_name display_name {name};
-
-        return display_name;
-    }
-
-    BOOST_AUTO_TEST_CASE(closures_test) {
-        auto my_func = make_func();
-        my_func(); // "Rosetta"
-
-        BOOST_TEST(cout.str() == "Rosetta"s);
-    }
-}
-
-namespace closures_lambda {
-    stringstream cout; // mock cout
-
-    auto make_func() {
-        auto name = "Rosetta"s;
-
-        // This is our closure, a callable object that
-        // remembers a value from its environment
-        auto display_name = [name] () {
-            cout << name;
-        };
-
-        return display_name;
-    }
-
-    BOOST_AUTO_TEST_CASE(closures_lambda_test) {
-        auto my_func = make_func();
-        my_func(); // "Rosetta"
-
-        BOOST_TEST(cout.str() == "Rosetta"s);
-    }
-}
-
-BOOST_AUTO_TEST_CASE(scope_chains_test) {
-    Delegating_unordered_map global_environment;
-    global_environment["globalVariable"] = "xyz"s;
-
-    global_environment["f"] = function<void()>{[&outer = global_environment] () {
-        Delegating_unordered_map f_environment;
-        f_environment.__proto__ = &outer;
-
-        f_environment["localVariable"] = true;
-
-        f_environment["g"] = function<void()>{[&outer = f_environment] () {
-            Delegating_unordered_map g_environment;
-            g_environment.__proto__ = &outer;
-
-            g_environment["anotherLocalVariable"] = 123;
-
-            BOOST_TEST(any_cast<string>(g_environment["globalVariable"]) == "xyz"s);
-            BOOST_TEST(any_cast<bool>(g_environment["localVariable"]) == true);
-            BOOST_TEST(any_cast<int>(g_environment["anotherLocalVariable"]) == 123);
-
-            // All variables of surrounding scopes are accessible
-            g_environment["localVariable"] = false;
-            g_environment["globalVariable"] = "abc"s;
-
-            BOOST_TEST(any_cast<bool>(g_environment["localVariable"]) == false);
-            BOOST_TEST(any_cast<string>(g_environment["globalVariable"]) == "abc"s);
-        }};
-
-        any_cast<function<void()>>(f_environment["g"])();
-        BOOST_TEST(any_cast<bool>(f_environment["localVariable"]) == false);
-    }};
-
-    any_cast<function<void()>>(global_environment["f"])();
-    BOOST_TEST(any_cast<string>(global_environment["globalVariable"]) == "abc"s);
-}
-
 namespace variadic {
     any plus_all(vector<any> arguments) {
         auto sum = 0;
@@ -288,11 +197,11 @@ any js_plus(any lval, any rval) {
                 any_cast<string>(rval)
         );
 
-        return any{lval_str + rval_str};
+        return lval_str + rval_str;
     }
 
     // Else, numeric addition
-    return any{any_cast<int>(lval) + any_cast<int>(rval)};
+    return any_cast<int>(lval) + any_cast<int>(rval);
 }
 
 namespace variadic_mixedtype {
@@ -331,28 +240,120 @@ namespace this_ {
     }
 }
 
-using js_function = function<any(any, vector<any>)>;
+namespace closures {
+    auto outside(int x) {
+        // A class that privately stores "x" and
+        // can be called as if it were a function
+        class Inside {
+            int x_;
 
-BOOST_AUTO_TEST_CASE(this_binding_test) {
+            public:
+                Inside(int x) : x_ {x} {}
+
+                auto operator()(int y) {
+                    return x_ + y;
+                }
+        };
+
+        // This is our closure, an instance of the above class,
+        // a callable object that remembers a value from its environment
+        Inside inside {x};
+
+        return inside;
+    }
+
+    BOOST_AUTO_TEST_CASE(closures_test) {
+        auto fn_inside = outside(3);
+        BOOST_TEST(fn_inside(5) == 8);
+
+        BOOST_TEST(outside(3)(5) == 8);
+    }
+}
+
+namespace closures_lambda {
+    auto outside(int x) {
+        // This is our closure, a callable object that
+        // remembers a value from its environment
+        auto inside = [x] (int y) {
+            return x + y;
+        };
+
+        return inside;
+    }
+
+    BOOST_AUTO_TEST_CASE(closures_lambda_test) {
+        auto fn_inside = outside(3);
+        BOOST_TEST(fn_inside(5) == 8);
+
+        BOOST_TEST(outside(3)(5) == 8);
+    }
+}
+
+class Callable_delegating_unordered_map : public Delegating_unordered_map {
+    function<any(any, vector<any>)> function_body_;
+
+    public:
+        Callable_delegating_unordered_map(function<any(any, vector<any>)> function_body) :
+            function_body_ {function_body}
+        {}
+
+        any operator()(any this_ = {}, vector<any> arguments = {}) {
+            return function_body_(this_, arguments);
+        }
+};
+
+BOOST_AUTO_TEST_CASE(function_object) {
+    Callable_delegating_unordered_map square {[] (any this_, vector<any> arguments) {
+        return any_cast<int>(arguments[0]) * any_cast<int>(arguments[0]);
+    }};
+
+    square["make"] = "Ford"s;
+    square["model"] = "Mustang"s;
+    square["year"] = 1969;
+
+    BOOST_TEST(any_cast<int>(square(nullptr, {4})) == 16);
+}
+
+using js_function = Callable_delegating_unordered_map;
+
+BOOST_AUTO_TEST_CASE(scope_chains_test) {
     Delegating_unordered_map global_environment;
+    global_environment["globalVariable"] = "xyz"s;
 
-    js_object o {
-        {"prop", 37},
-        {"f", js_function{[] (any this_, vector<any> arguments) {
-            return any_cast<js_object>(this_)["prop"];
-        }}}
-    };
+    global_environment["f"] = js_function{[&] (any this_, vector<any> arguments) {
+        Delegating_unordered_map f_environment;
+        f_environment.__proto__ = &global_environment;
 
-    global_environment["prop"] = 42;
+        f_environment["localVariable"] = true;
 
-    // When a function is called as a method of an object,
-    // its "this" is set to the object the method is called on
-    BOOST_TEST(any_cast<int>(any_cast<js_function>(o["f"])(o, {})) == 37); // 37
+        f_environment["g"] = js_function{[&] (any this_, vector<any> arguments) {
+            Delegating_unordered_map g_environment;
+            g_environment.__proto__ = &f_environment;
 
-    // When a function is called as a simple function call,
-    // its "this" is the global object
-    auto f = any_cast<js_function>(o["f"]);
-    BOOST_TEST(any_cast<int>(f(global_environment, {})) == 42); // 42
+            g_environment["anotherLocalVariable"] = 123;
+
+            BOOST_TEST(any_cast<string>(g_environment["globalVariable"]) == "xyz"s);
+            BOOST_TEST(any_cast<bool>(g_environment["localVariable"]) == true);
+            BOOST_TEST(any_cast<int>(g_environment["anotherLocalVariable"]) == 123);
+
+            // All variables of surrounding scopes are accessible
+            g_environment["localVariable"] = false;
+            g_environment["globalVariable"] = "abc"s;
+
+            BOOST_TEST(any_cast<bool>(g_environment["localVariable"]) == false);
+            BOOST_TEST(any_cast<string>(g_environment["globalVariable"]) == "abc"s);
+
+            return any{};
+        }};
+
+        any_cast<js_function>(f_environment["g"])();
+        BOOST_TEST(any_cast<bool>(f_environment["localVariable"]) == false);
+
+        return any{};
+    }};
+
+    any_cast<js_function>(global_environment["f"])();
+    BOOST_TEST(any_cast<string>(global_environment["globalVariable"]) == "abc"s);
 }
 
 namespace closures_in_loop {
@@ -364,7 +365,7 @@ namespace closures_in_loop {
         for (auto i = 0; i < 5; ++i) {
             // Every closure we push captures the value of "i"
             // at the moment the closure is created
-            functions.push_back([i] (any this_, vector<any> arguments) {
+            functions.emplace_back([i] (any this_, vector<any> arguments) {
                 cout << i;
                 return any{};
             });
@@ -372,7 +373,7 @@ namespace closures_in_loop {
 
         // 0, 1, 2, 3, 4
         for_each(functions.begin(), functions.end(), [] (auto fn) {
-            fn(nullptr, {});
+            fn();
         });
 
         BOOST_TEST(cout.str() == "01234"s);
@@ -387,7 +388,7 @@ namespace closures_byref_in_loop {
 
         for (auto& i = *(new int{0}); i < 5; ++i) {
             // Every closure we push captures a reference to the same "i"
-            functions.push_back([&i] (any this_, vector<any> arguments) {
+            functions.emplace_back([&i] (any this_, vector<any> arguments) {
                 cout << i;
                 return any{};
             });
@@ -395,7 +396,7 @@ namespace closures_byref_in_loop {
 
         // 5, 5, 5, 5, 5
         for_each(functions.begin(), functions.end(), [] (auto fn) {
-            fn(nullptr, {});
+            fn();
         });
 
         BOOST_TEST(cout.str() == "55555"s);
@@ -413,7 +414,7 @@ namespace closures_peritercopy_in_loop {
             auto& i_copy = *(new int{i});
 
             // Every closure we push captures a reference to a per-iteration copy of "i"
-            functions.push_back([&i_copy] (any this_, vector<any> arguments) {
+            functions.emplace_back([&i_copy] (any this_, vector<any> arguments) {
                 cout << i_copy;
                 return any{};
             });
@@ -421,7 +422,7 @@ namespace closures_peritercopy_in_loop {
 
         // 0, 1, 2, 3, 4
         for_each(functions.begin(), functions.end(), [] (auto fn) {
-            fn(nullptr, {});
+            fn();
         });
 
         BOOST_TEST(cout.str() == "01234"s);
@@ -441,7 +442,7 @@ namespace garbage_collection {
             auto i_copy = my_heap.make<int>(i);
 
             // Every closure we push captures a reference to a per-iteration copy of "i"
-            functions.push_back([i_copy] (any this_, vector<any> arguments) {
+            functions.emplace_back([i_copy] (any this_, vector<any> arguments) {
                 cout << *i_copy;
                 return any{};
             });
@@ -449,7 +450,7 @@ namespace garbage_collection {
 
         // 0, 1, 2, 3, 4
         for_each(functions.begin(), functions.end(), [] (auto fn) {
-            fn(nullptr, {});
+            fn();
         });
 
         // Destroy and deallocate any unreachable objects
