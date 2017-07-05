@@ -81,7 +81,7 @@ unordered_map<string, any> myCar {
 };
 ```
 
-I'll admit this revelation in particular ruined some of JavaScript's mystique for me. We in the JavaScript community often tout that JavaScript can create objects ex nihilo ("out of nothing"), something we're told few languages can do. But I've realized this isn't a *technical* achievement; it's a *branding* achievement. Every language I'm aware of can create hash tables ex nihilo, and it seems JavaScript simply re-branded hash tables as the generic object.
+I'll admit this revelation in particular ruined some of JavaScript's mystique for me. We in the JavaScript community often tout that JavaScript can [create objects ex nihilo ("out of nothing")](https://en.wikipedia.org/wiki/Prototype-based_programming#Object_construction), something we're told few languages can do. But I've realized this isn't a *technical* achievement; it's a *branding* achievement. Every language I'm aware of can create hash tables ex nihilo, and it seems JavaScript simply re-branded hash tables as the generic object.
 
 ## Arrays
 
@@ -362,7 +362,7 @@ add(o, {5, 7}); // 1 + 3 + 5 + 7 = 16
 add(o, {10, 20}); // 1 + 3 + 10 + 20 = 34
 ```
 
-The way we now call our C++ functions exactly matches JavaScript's `apply`, where the first argument is the `this` value, and the second argument is an array that lists all other arguments. We're sometimes told that using `this` is inherently statefull, but it isn't. At the end of the day, `this` is just a parameter. And if we want our object methods to be pure, then we can choose to not mutate `this` just like we would choose to not mutate any other argument.
+The way we now call our C++ functions exactly matches JavaScript's `apply`, where the first argument is the `this` value and the second argument is an array that lists all other arguments. We're sometimes told that using `this` is inherently stateful, but it turns out it isn't. At the end of the day, `this` is just a parameter. If we want our object methods to be pure, for example, then we can choose to not mutate `this` just like we would choose to not mutate any other parameter.
 
 ## Closures
 
@@ -437,7 +437,7 @@ In these C++ samples, I defined only `inside` as a callable object and I left `o
 
 ## Function objects
 
-But JavaScript's functions aren't just objects in the C++ sense of the word, they're also objects in the JavaScript sense of the word. Which means JavaScript's functions are callable hash tables. We can both invoke them as a function *and* assign to them key-value pairs. To reproduce this behavior in C++, we'll extend the `Delegating_unordered_map` we made earlier and specialize it to also be callable.
+In fact, JavaScript's functions aren't just objects in the C++ sense of the word, they're also objects in the JavaScript sense of the word. Which means JavaScript's functions are callable hash tables. We can both invoke them as a function *and* assign to them key-value pairs. To reproduce this behavior in C++, we'll extend the `Delegating_unordered_map` we made earlier and specialize it to also be callable.
 
 ###### C++
 ```c++
@@ -455,7 +455,7 @@ class Callable_delegating_unordered_map : public Delegating_unordered_map {
 };
 ```
 
-You may also notice in the parameter list that I provided default values for `this_` and `arguments`. With that done, let's take a look at callable hash tables.
+With that done, let's take a look at callable hash tables.
 
 ###### JavaScript
 ```javascript
