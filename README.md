@@ -1,6 +1,6 @@
 # JavaScript/C++ Rosetta Stone
 
-I'm going to reproduce the behavior of the JavaScript language in C++. Lexical scopes, closures, prototypal inheritance, duck typing -- all of it -- in C++. I'm doing this mostly because I think it's fun and interesting. But for everyone else, this exercise will help to understand what JavaScript is doing under the hood and let us talk about its behavior in concrete terms rather than in metaphors. This might also be your first exposure to C++. It's a useful skill to have since Node itself, and any addons we might write for it, are in C++, and seeing it side-by-side with JavaScript code that does the same thing can help bridge the gap.
+Dynamic languages such as JavaScript can sometimes seem almost magical -- objects out of nothing, reassignable inheritance, functions as values, classes as values -- but now I'm going to strip away that layer of magic. I'm going to peek below the syntactic sugar of the JavaScript language itself and reproduce its behavior closer to the machine, in C++. I'm doing this mostly because I think it's fun and interesting, but for everyone else, this exercise will help JavaScript developers to understand what their language is doing under the hood and let us talk about its behavior in concrete terms rather than in metaphors, and for C++ developers new to JavaScript, this exercise will help to understand the concrete operations that lie beneath such a dynamic language.
 
 ## Dynamic types
 
@@ -32,7 +32,7 @@ x = "Hello"s;
 
 ### Any
 
-But because the size of a union is at least as large as its largest member, space is wasted. A variable that needs only 1 byte for a bool might nonetheless allocate 32 bytes just in case we later wanted to assign a string into it. But also as bad, we have to know about and list every type that might be assigned to the variant. Ideally we'd like to be able to assign any arbitrary type. That brings us to another user-defined type named, unsurprisingly, `any`. It works by dynamically allocating the value and using it through a pointer. If all we need is a 1-byte bool, then it dynamically allocates and points to just 1 byte. Later if we reassign a string into that variable, then it frees the 1-byte bool and dynamically allocates and points to 32 bytes for the string. Now we don't need to know about every type ahead of time, and it can store (nearly) any arbitrary type we want.
+But because the size of a union is at least as large as its largest member, space is wasted. A variable that needs only 1 byte for a bool might nonetheless allocate 32 bytes just in case we later wanted to assign a string into it. But also as bad, we have to know about and list every type that might be assigned to the variant. Ideally we'd like to be able to assign any arbitrary type. That brings us to another user-defined type named, unsurprisingly, `any`. It works by allocating the value on the free store and using it through a pointer. If all we need is a 1-byte bool, then it dynamically allocates and points to just 1 byte. Later if we reassign a string into that variable, then it frees the 1-byte bool and dynamically allocates and points to 32 bytes for the string. Now we don't need to know about every type ahead of time, and it can store (nearly) any arbitrary type we want.
 
 ###### JavaScript
 ```javascript
@@ -74,7 +74,7 @@ let myCar = {
 
 ###### C++
 ```c++
-unordered_map<string, any> myCar {
+unordered_map<string, any> my_car {
     {"make", "Ford"s},
     {"model", "Mustang"s},
     {"year", 1969}
@@ -123,7 +123,7 @@ fruits["model"] = "Mustang"s;
 
 Next up, the now famous prototypal inheritance. I'm assuming my audience here already knows that [JavaScript objects delegate to other objects](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Details_of_the_Object_Model). Since JavaScript's objects are ultimately hash tables, we can likewise describe JavaScript's prototypal inheritance as hash tables delegating element access to other hash tables.
 
-This time, unfortunately, C++ does not have a ready-made type for this task. We'll have to make it ourselves. But this too turned out to be far simplier than even I originally expected. We in the JavaScript community sometimes say it's easy for prototypal to emulate classical but hard for classical to emulate prototypal. It turns out that isn't true. Up to this point, we've been using `unordered_map` as our equivalent to JavaScript's objects. Now we're going to extend that type to add the so-called `[[Prototype]]` link, and we're going to override the element access operator so it will delegate access misses to that link.
+This time, unfortunately, C++ does not have a ready-made type for this task. We'll have to make it ourselves. We in the JavaScript community sometimes say it's easy for prototypal to emulate classical but hard for classical to emulate prototypal, but implementing prototypal inheritance turned out to be far simplier than even I originally expected. Up to this point, we've been using `unordered_map` as our equivalent to JavaScript's objects. Now we're going to extend that type to add the so-called `[[Prototype]]` link, and we're going to override the element access operator so it will delegate access misses to that link.
 
 ###### C++
 ```c++
@@ -131,17 +131,23 @@ class Delegating_unordered_map : private unordered_map<string, any> {
     public:
         Delegating_unordered_map* __proto__ {};
 
-        any& operator[](const string& key) {
+        auto find_in_chain(const string& key) {
             // Check own property
-            const auto found_value = find(key);
-            if (found_value != end()) {
-                return found_value->second;
-            }
+            auto found_value = find(key);
+            if (found_value != end()) return found_value;
 
             // Else, delegate to prototype
             if (__proto__) {
-                return (*__proto__)[key];
+                auto found_value = __proto__->find_in_chain(key);
+                if (found_value != __proto__->end()) return found_value;
             }
+
+            return end();
+        }
+
+        any& operator[](const string& key) {
+            auto found_value = find_in_chain(key);
+            if (found_value != end()) return found_value->second;
 
             // Else, super call, which will create and return an empty `any`
             return unordered_map<string, any>::operator[](key);
@@ -282,7 +288,7 @@ plusAll(4, 8, "!", 15, 16, 23, 42); // "12!15162342"
 
 ###### C++
 ```c++
-any js_plus(any lval, any rval) {
+any js_plus(const any& lval, const any& rval) {
     // If either operand is a string...
     if (
         lval.type() == typeid(string) ||
@@ -321,7 +327,7 @@ plus_all({4, 8, "!"s, 15, 16, 23, 42}); // "12!15162342"
 
 ## "This"
 
-Although `this` is handled separately from other parameters, nonetheless in a lot of ways, JavaScript's `this` behaves just like a parameter, albeit one that is often passed and received implicitly. We can reproduce JavaScript's behavior by adding one extra parameter before our arguments list.
+Although `this` is handled separately from other parameters, nonetheless in a lot of ways, JavaScript's `this` behaves just like a parameter, albeit one that is often passed and received implicitly. We can reproduce JavaScript's behavior by adding one extra parameter before our arguments list, and we can name that parameter `this_`. The trailing underscore is there because `this` is a reserved name in C++.
 
 ###### JavaScript
 ```javascript
@@ -362,11 +368,15 @@ add(o, {5, 7}); // 1 + 3 + 5 + 7 = 16
 add(o, {10, 20}); // 1 + 3 + 10 + 20 = 34
 ```
 
-The way we now call our C++ functions exactly matches JavaScript's `apply`, where the first argument is the `this` value and the second argument is an array that lists all other arguments. We're sometimes told that using `this` is inherently stateful, but it turns out it isn't. At the end of the day, `this` is just a parameter. If we want our object methods to be pure, for example, then we can choose to not mutate `this` just like we would choose to not mutate any other parameter.
+The way we now call our C++ functions exactly matches JavaScript's `apply`, where the first argument is the `this` value and the second argument is an array that lists all other arguments. We're sometimes told that using `this` is inherently stateful, but at the end of the day, `this` is just a parameter. If we want our object methods to be pure, for example, then we can choose to not mutate `this` just like we would choose to not mutate any other parameter.
 
 ## Closures
 
-Closures are functions that remember the environment / scope / context in which they were created. But how exactly does a JavaScript function "remember" things? How does a function become stateful? The answer in hindsight is almost boringly obvious. A closure is an *object* -- with a constructor and private data -- that we can call *as if* it were a function. You may have already seen callable objects in other languages. Python lets you define a [`__call__`](https://docs.python.org/3/reference/datamodel.html#object.__call__) method, and PHP has a special [`__invoke`](http://php.net/manual/en/language.oop5.magic.php#object.invoke) method. In C++, we define an [`operator()`](http://en.cppreference.com/w/cpp/language/operators#Function_call_operator) member function. And it's these functions that are executed when an object is called as if it were a function.
+A closure is a structure containing a function and an environment that stores non-local (free) variables. Or, put another way, a closure is an object with a single member function and private data. When we execute that function, it can access the "captured" variables from the associated environment that was stored in the closure object's private data.
+
+Depending on the language, we can make the closure object itself callable. You may have already seen callable objects in other languages. Python, for example, lets you define a [`__call__`](https://docs.python.org/3/reference/datamodel.html#object.__call__) method, and PHP has a special [`__invoke`](http://php.net/manual/en/language.oop5.magic.php#object.invoke) method. In C++, we define an [`operator()`](http://en.cppreference.com/w/cpp/language/operators#Function_call_operator) member function. And it's these functions that are executed when an object is called as if it were a function.
+
+As you read these descriptions, keep in mind that C++'s notion of a function is not the same as JavaScript's notion of a function. In C++, a function can be distinct from a closure and not associated with any environment. But in JavaScript, *every* function has an associated environment. What JavaScript calls a function isn't the function *part* of a closure. Rather, what JavaScript calls a function is the closure itself -- a callable object that contains an environment.
 
 ###### JavaScript
 ```javascript
@@ -400,8 +410,8 @@ auto outside(int x) {
             }
     };
 
-    // This is our closure, an instance of the above class,
-    // a callable object that remembers a value from its environment
+    // This is our closure, an instance of the above class, a callable object
+    // that is constructed with and stores a value from its environment
     Inside inside {x};
 
     return inside;
@@ -413,13 +423,13 @@ fn_inside(5); // 8
 outside(3)(5); // 8
 ```
 
-This C++ sample demonstrates what's ultimately happening under the hood, but admittedly it's verbose. In 2011, C++ introduced a lambda syntax, which is syntactic sugar for defining and instantiating a callable class, same as we did above.
+This C++ sample demonstrates what's ultimately happening under the hood, but admittedly it's verbose. In 2011, C++ introduced a lambda expression syntax, which produces a closure object and is syntactic sugar for defining and instantiating a callable class, same as we did above.
 
 ###### C++
 ```c++
 auto outside(int x) {
     // This is our closure, a callable object that
-    // remembers a value from its environment
+    // stores a value from its environment
     auto inside = [x] (int y) {
         return x + y;
     };
@@ -433,7 +443,7 @@ fn_inside(5); // 8
 outside(3)(5); // 8
 ```
 
-In these C++ samples, I defined only `inside` as a callable object and I left `outside` as an ordinary function because that's all that was necessary to reproduce JavaScript's behavior for this particular code sample. But in truth, *every* function in JavaScript is a callable object. *Every* function is a closure.
+In these C++ samples, I defined only `inside` as a callable object and I left `outside` as a plain function because that's all that was necessary to reproduce JavaScript's behavior for this particular code sample. But in truth, *every* function in JavaScript is a callable object. *Every* function is a closure.
 
 ## Function objects
 
@@ -449,7 +459,7 @@ class Callable_delegating_unordered_map : public Delegating_unordered_map {
             function_body_ {function_body}
         {}
 
-        any operator()(any this_ = {}, vector<any> arguments = {}) {
+        auto operator()(any this_ = {}, vector<any> arguments = {}) {
             return function_body_(this_, arguments);
         }
 };
@@ -543,80 +553,72 @@ global_environment["f"] = js_function{[&] (any this_, vector<any> arguments) {
 
 ## Capture by reference vs by value
 
-JavaScript's function closures capture by reference, but the earlier C++ closure sample actually captures by value. You can see the difference in this infamous trap where we create closures inside a loop.
+In C++, a closure's environment can store either a copy of values in scope or a reference to values in scope. But JavaScript's closures will only ever capture by reference. The difference is especially apparent in the famous problem with creating closures inside a loop.
 
 ###### JavaScript
 ```javascript
 let functions = [];
 
-for (var i = 0; i < 5; i++) {
+for (var i = 0; i < 3; i++) {
     // Every closure we push captures a reference to the same "i"
     functions.push(() => {
         console.log(i);
     });
 }
 
-// 5, 5, 5, 5, 5
-functions.forEach((fn) => {
+// 3, 3, 3
+functions.forEach(fn => {
     fn();
 });
 ```
 
 ###### C++
 ```c++
-vector<js_function> functions;
+vector<js_function> functions_by_value;
+vector<js_function> functions_by_ref;
 
-for (auto i = 0; i < 5; ++i) {
-    // Every closure we push captures the value of "i"
+for (auto& i = *(new int{0}); i < 3; ++i) {
+    // This closure will capture the value of "i"
     // at the moment the closure is created
-    functions.emplace_back([i] (any this_, vector<any> arguments) {
+    functions_by_value.push_back(js_function{[i] (any this_, vector<any> arguments) {
         cout << i;
         return any{};
-    });
+    }});
+
+    // This closure will capture a reference to the same "i"
+    functions_by_ref.push_back(js_function{[&i] (any this_, vector<any> arguments) {
+        cout << i;
+        return any{};
+    }});
 }
 
-// 0, 1, 2, 3, 4
-for_each(functions.begin(), functions.end(), [] (auto fn) {
+// 0, 1, 2
+for_each(functions_by_value.begin(), functions_by_value.end(), [] (auto fn) {
     fn();
 });
-```
 
-If the C++ closures instead captured by reference -- which we can do by putting an `&` in the capture list -- then we'd get the same result as the JavaScript closures.
-
-###### C++
-```c++
-vector<js_function> functions;
-
-for (auto& i = *(new int{0}); i < 5; ++i) {
-    // Every closure we push captures a reference to the same "i"
-    functions.emplace_back([&i] (any this_, vector<any> arguments) {
-        cout << i;
-        return any{};
-    });
-}
-
-// 5, 5, 5, 5, 5
-for_each(functions.begin(), functions.end(), [] (auto fn) {
+// 3, 3, 3
+for_each(functions_by_ref.begin(), functions_by_ref.end(), [] (auto fn) {
     fn();
 });
 ```
 
 ### `let` and capturing by value
 
-Recently, JavaScript added the [`let` statement](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let), which brings block scoping to the language. But when it comes to for-loops, then `let` does more than mere block scoping. At every iteration of the loop, [JavaScript creates a brand new *copy* of the loop variable](http://www.ecma-international.org/ecma-262/7.0/index.html#sec-createperiterationenvironment). That's not normal block scoping behavior. Rather, this seems to emulate capture by value in a language that otherwise only supports capture by reference. A JavaScript closure within the loop will still capture by reference, but it won't capture the loop variable itself; it will capture a per-iteration *copy* of the loop variable.
+Recently JavaScript added the [`let` statement](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let), which brings block scoping to the language. But when it comes to for-loops, then `let` does more than mere block scoping. At every iteration of the loop, [JavaScript creates a brand new *copy* of the loop variable](http://www.ecma-international.org/ecma-262/7.0/index.html#sec-createperiterationenvironment). That's not normal block scoping behavior. Rather, this seems to emulate capture by value in a language that otherwise only supports capture by reference. A JavaScript closure within the loop will still capture by reference, but it won't capture the loop variable itself; it will capture a per-iteration *copy* of the loop variable.
 
 ###### JavaScript
 ```javascript
 let functions = [];
 
-for (let i = 0; i < 5; i++) {
+for (let i = 0; i < 3; i++) {
     // Every closure we push captures a reference to a per-iteration copy of "i"
     functions.push(() => {
         console.log(i);
     });
 }
 
-// 0, 1, 2, 3, 4
+// 0, 1, 2
 functions.forEach((fn) => {
     fn();
 });
@@ -626,18 +628,18 @@ functions.forEach((fn) => {
 ```c++
 vector<js_function> functions;
 
-for (auto i = 0; i < 5; ++i) {
+for (auto i = 0; i < 3; ++i) {
     // Create a per-iteration copy of "i"
     auto& i_copy = *(new int{i});
 
     // Every closure we push captures a reference to a per-iteration copy of "i"
-    functions.emplace_back([&i_copy] (any this_, vector<any> arguments) {
+    functions.push_back(js_function{[&i_copy] (any this_, vector<any> arguments) {
         cout << i_copy;
         return any{};
-    });
+    }});
 }
 
-// 0, 1, 2, 3, 4
+// 0, 1, 2
 for_each(functions.begin(), functions.end(), [] (auto fn) {
     fn();
 });
@@ -657,18 +659,18 @@ deferred_heap my_heap;
 
 vector<js_function> functions;
 
-for (auto i = 0; i < 5; ++i) {
+for (auto i = 0; i < 3; ++i) {
     // Create a per-iteration copy of "i"
     auto i_copy = my_heap.make<int>(i);
 
     // Every closure we push captures a reference to a per-iteration copy of "i"
-    functions.emplace_back([i_copy] (any this_, vector<any> arguments) {
+    functions.push_back(js_function{[i_copy] (any this_, vector<any> arguments) {
         cout << *i_copy;
         return any{};
-    });
+    }});
 }
 
-// 0, 1, 2, 3, 4
+// 0, 1, 2
 for_each(functions.begin(), functions.end(), [] (auto fn) {
     fn();
 });
@@ -676,6 +678,36 @@ for_each(functions.begin(), functions.end(), [] (auto fn) {
 // Destroy and deallocate any unreachable objects
 my_heap.collect();
 ```
+
+In the sample above, only the per-iteration copy is garbage collected. If we want *all* of our objects, arrays, and function objects to also be garbage collected, then we'll have to make a few changes. First, we need to update the `Delegating_unordered_map` and change the raw `__proto__` pointer to the garbage collector `deferred_ptr`.
+
+###### C++
+```c++
+class Delegating_unordered_map : private unordered_map<string, any> {
+    public:
+        deferred_ptr<Delegating_unordered_map> __proto__ {};
+
+        // ...
+};
+```
+
+And second, when we want a new `js_object`, we'll have to ask the garbage collector to make it for us by calling, for example, `my_heap.make<js_object>( js_object{{"a", 1}, {"b", 2}} )`. And we'll have to refer to those garbage collected object types as `deferred_ptr<js_object>`. That can be just a little tedious and verbose, so let's define a couple helper functions and a couple type aliases to be a touch cleaner.
+
+###### C++
+```c++
+auto make_js_object(const js_object& obj = {}) {
+    return my_heap.make<js_object>(obj);
+}
+
+auto make_js_function(const js_function& func) {
+    return my_heap.make<js_function>(func);
+}
+
+using js_object_ref = deferred_ptr<js_object>;
+using js_function_ref = deferred_ptr<js_function>;
+```
+
+You may have noticed I aliased a type name suffixed "ptr" to a name suffixed "ref". Admittedly the terminology here gets a bit awkward. What JavaScript calls a reference behaves like what C++ calls a pointer. C++ also has a feature it calls a reference, but it's different than what JavaScript calls a reference.
 
 ## That's all folks! (...for now)
 

@@ -6,8 +6,26 @@ set_property(DIRECTORY PROPERTY EP_BASE "${CMAKE_CURRENT_BINARY_DIR}/ExternalPro
 # Boost
 ExternalProject_Add(
     boost URL https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz
-    CONFIGURE_COMMAND "" BUILD_COMMAND "" INSTALL_COMMAND ""
+    BUILD_IN_SOURCE 1
+    # Platform-specific configure command will follow
+    CONFIGURE_COMMAND ""
+    # An out-of-source install would be ideal,
+    # but that involves copying all the header files,
+    # which is super slow on windows
+    BUILD_COMMAND ./b2 "--stagedir=<SOURCE_DIR>" --with-test variant=release link=static stage
+    INSTALL_COMMAND ""
 )
+if(CMAKE_HOST_UNIX)
+    ExternalProject_Add_Step(
+        boost unix_configure DEPENDEES patch DEPENDERS configure
+        WORKING_DIRECTORY "<SOURCE_DIR>" COMMAND ./bootstrap.sh
+    )
+else()
+    ExternalProject_Add_Step(
+        boost win_configure DEPENDEES patch DEPENDERS configure
+        WORKING_DIRECTORY "<SOURCE_DIR>" COMMAND bootstrap.bat
+    )
+endif()
 ExternalProject_Get_Property(boost SOURCE_DIR)
 set(BOOST_SOURCE_DIR "${SOURCE_DIR}")
 

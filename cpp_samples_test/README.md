@@ -16,18 +16,10 @@ To build and run these tests, you'll need [CMake](https://cmake.org/) and a C++ 
 mkdir build
 cd build
 cmake ..
+cmake --build . --config Release
 ```
 
-Then, in Mac or Linux environments, run `make`, or in a Windows environment, open and build the generated Visual Studio solution.
-
-The make/build step will download C++ dependencies (including Boost, so be patient), then build and run the test executable. If all goes well, the last output you should see in the build log is:
-
-```
-Running N test cases...
-
-*** No errors detected
-
-```
+The build step will download C++ dependencies -- including Boost, so be patient. If all goes well, you should see `100% tests passed` near the end of the build output.
 
 ## Copyright
 

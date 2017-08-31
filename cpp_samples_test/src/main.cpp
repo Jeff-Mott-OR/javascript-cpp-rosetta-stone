@@ -11,7 +11,7 @@
     #include <unordered_map>
     #include <vector>
     #include <boost/any.hpp>
-    #include <boost/test/included/unit_test.hpp>
+    #include <boost/test/unit_test.hpp>
     #include <boost/variant.hpp>
     #include <deferred_heap.h>
     #include <gsl/gsl>
@@ -32,6 +32,7 @@ using boost::any_cast;
 using boost::get;
 using boost::variant;
 using gcpp::deferred_heap;
+using gcpp::deferred_ptr;
 
 BOOST_AUTO_TEST_CASE(variant_test) {
     variant<bool, int, string> x;
@@ -72,15 +73,15 @@ BOOST_AUTO_TEST_CASE(any_test) {
 }
 
 BOOST_AUTO_TEST_CASE(objects_test) {
-    unordered_map<string, any> myCar {
+    unordered_map<string, any> my_car {
         {"make", "Ford"s},
         {"model", "Mustang"s},
         {"year", 1969}
     };
 
-    BOOST_TEST(any_cast<string>(myCar["make"]) == "Ford"s);
-    BOOST_TEST(any_cast<string>(myCar["model"]) == "Mustang"s);
-    BOOST_TEST(any_cast<int>(myCar["year"]) == 1969);
+    BOOST_TEST(any_cast<string>(my_car["make"]) == "Ford"s);
+    BOOST_TEST(any_cast<string>(my_car["model"]) == "Mustang"s);
+    BOOST_TEST(any_cast<int>(my_car["year"]) == 1969);
 }
 
 BOOST_AUTO_TEST_CASE(arrays_test) {
@@ -103,17 +104,23 @@ class Delegating_unordered_map : private unordered_map<string, any> {
     public:
         Delegating_unordered_map* __proto__ {};
 
-        any& operator[](const string& key) {
+        auto find_in_chain(const string& key) {
             // Check own property
-            const auto found_value = find(key);
-            if (found_value != end()) {
-                return found_value->second;
-            }
+            auto found_value = find(key);
+            if (found_value != end()) return found_value;
 
             // Else, delegate to prototype
             if (__proto__) {
-                return (*__proto__)[key];
+                auto found_value = __proto__->find_in_chain(key);
+                if (found_value != __proto__->end()) return found_value;
             }
+
+            return end();
+        }
+
+        any& operator[](const string& key) {
+            auto found_value = find_in_chain(key);
+            if (found_value != end()) return found_value->second;
 
             // Else, super call, which will create and return an empty `any`
             return unordered_map<string, any>::operator[](key);
@@ -179,7 +186,7 @@ namespace variadic_stl {
     }
 }
 
-any js_plus(any lval, any rval) {
+any js_plus(const any& lval, const any& rval) {
     // If either operand is a string...
     if (
         lval.type() == typeid(string) ||
@@ -255,8 +262,8 @@ namespace closures {
                 }
         };
 
-        // This is our closure, an instance of the above class,
-        // a callable object that remembers a value from its environment
+        // This is our closure, an instance of the above class, a callable object
+        // that is constructed with and stores a value from its environment
         Inside inside {x};
 
         return inside;
@@ -273,7 +280,7 @@ namespace closures {
 namespace closures_lambda {
     auto outside(int x) {
         // This is our closure, a callable object that
-        // remembers a value from its environment
+        // stores a value from its environment
         auto inside = [x] (int y) {
             return x + y;
         };
@@ -297,7 +304,7 @@ class Callable_delegating_unordered_map : public Delegating_unordered_map {
             function_body_ {function_body}
         {}
 
-        any operator()(any this_ = {}, vector<any> arguments = {}) {
+        auto operator()(any this_ = {}, vector<any> arguments = {}) {
             return function_body_(this_, arguments);
         }
 };
@@ -340,66 +347,60 @@ BOOST_AUTO_TEST_CASE(scope_chains_test) {
             g_environment["localVariable"] = false;
             g_environment["globalVariable"] = "abc"s;
 
-            BOOST_TEST(any_cast<bool>(g_environment["localVariable"]) == false);
             BOOST_TEST(any_cast<string>(g_environment["globalVariable"]) == "abc"s);
+            BOOST_TEST(any_cast<bool>(g_environment["localVariable"]) == false);
+            BOOST_TEST(any_cast<int>(g_environment["anotherLocalVariable"]) == 123);
 
             return any{};
         }};
 
         any_cast<js_function>(f_environment["g"])();
+        BOOST_TEST(any_cast<string>(f_environment["globalVariable"]) == "abc"s);
         BOOST_TEST(any_cast<bool>(f_environment["localVariable"]) == false);
+        BOOST_TEST(global_environment["anotherLocalVariable"].empty());
 
         return any{};
     }};
 
     any_cast<js_function>(global_environment["f"])();
     BOOST_TEST(any_cast<string>(global_environment["globalVariable"]) == "abc"s);
+    BOOST_TEST(global_environment["localVariable"].empty());
+    BOOST_TEST(global_environment["anotherLocalVariable"].empty());
 }
 
 namespace closures_in_loop {
     stringstream cout; // mock cout
 
     BOOST_AUTO_TEST_CASE(closures_in_loop_test) {
-        vector<js_function> functions;
+        vector<js_function> functions_by_value;
+        vector<js_function> functions_by_ref;
 
-        for (auto i = 0; i < 5; ++i) {
-            // Every closure we push captures the value of "i"
+        for (auto& i = *(new int{0}); i < 3; ++i) {
+            // This closure will capture the value of "i"
             // at the moment the closure is created
-            functions.emplace_back([i] (any this_, vector<any> arguments) {
+            functions_by_value.push_back(js_function{[i] (any this_, vector<any> arguments) {
                 cout << i;
                 return any{};
-            });
+            }});
+
+            // This closure will capture a reference to the same "i"
+            functions_by_ref.push_back(js_function{[&i] (any this_, vector<any> arguments) {
+                cout << i;
+                return any{};
+            }});
         }
 
-        // 0, 1, 2, 3, 4
-        for_each(functions.begin(), functions.end(), [] (auto fn) {
+        // 0, 1, 2
+        for_each(functions_by_value.begin(), functions_by_value.end(), [] (auto fn) {
             fn();
         });
 
-        BOOST_TEST(cout.str() == "01234"s);
-    }
-}
-
-namespace closures_byref_in_loop {
-    stringstream cout; // mock cout
-
-    BOOST_AUTO_TEST_CASE(closures_byref_in_loop_test) {
-        vector<js_function> functions;
-
-        for (auto& i = *(new int{0}); i < 5; ++i) {
-            // Every closure we push captures a reference to the same "i"
-            functions.emplace_back([&i] (any this_, vector<any> arguments) {
-                cout << i;
-                return any{};
-            });
-        }
-
-        // 5, 5, 5, 5, 5
-        for_each(functions.begin(), functions.end(), [] (auto fn) {
+        // 3, 3, 3
+        for_each(functions_by_ref.begin(), functions_by_ref.end(), [] (auto fn) {
             fn();
         });
 
-        BOOST_TEST(cout.str() == "55555"s);
+        BOOST_TEST(cout.str() == "012333"s);
     }
 }
 
@@ -409,23 +410,23 @@ namespace closures_peritercopy_in_loop {
     BOOST_AUTO_TEST_CASE(closures_peritercopy_in_loop) {
         vector<js_function> functions;
 
-        for (auto i = 0; i < 5; ++i) {
+        for (auto i = 0; i < 3; ++i) {
             // Create a per-iteration copy of "i"
             auto& i_copy = *(new int{i});
 
             // Every closure we push captures a reference to a per-iteration copy of "i"
-            functions.emplace_back([&i_copy] (any this_, vector<any> arguments) {
+            functions.push_back(js_function{[&i_copy] (any this_, vector<any> arguments) {
                 cout << i_copy;
                 return any{};
-            });
+            }});
         }
 
-        // 0, 1, 2, 3, 4
+        // 0, 1, 2
         for_each(functions.begin(), functions.end(), [] (auto fn) {
             fn();
         });
 
-        BOOST_TEST(cout.str() == "01234"s);
+        BOOST_TEST(cout.str() == "012"s);
     }
 }
 
@@ -437,18 +438,18 @@ namespace garbage_collection {
 
         vector<js_function> functions;
 
-        for (auto i = 0; i < 5; ++i) {
+        for (auto i = 0; i < 3; ++i) {
             // Create a per-iteration copy of "i"
             auto i_copy = my_heap.make<int>(i);
 
             // Every closure we push captures a reference to a per-iteration copy of "i"
-            functions.emplace_back([i_copy] (any this_, vector<any> arguments) {
+            functions.push_back(js_function{[i_copy] (any this_, vector<any> arguments) {
                 cout << *i_copy;
                 return any{};
-            });
+            }});
         }
 
-        // 0, 1, 2, 3, 4
+        // 0, 1, 2
         for_each(functions.begin(), functions.end(), [] (auto fn) {
             fn();
         });
@@ -456,6 +457,66 @@ namespace garbage_collection {
         // Destroy and deallocate any unreachable objects
         my_heap.collect();
 
-        BOOST_TEST(cout.str() == "01234"s);
+        BOOST_TEST(cout.str() == "012"s);
     }
+
+    class Delegating_unordered_map : private unordered_map<string, any> {
+        public:
+            deferred_ptr<Delegating_unordered_map> __proto__ {};
+
+            auto find_in_chain(const string& key) {
+                // Check own property
+                auto found_value = find(key);
+                if (found_value != end()) return found_value;
+
+                // Else, delegate to prototype
+                if (__proto__) {
+                    auto found_value = __proto__->find_in_chain(key);
+                    if (found_value != __proto__->end()) return found_value;
+                }
+
+                return end();
+            }
+
+            any& operator[](const string& key) {
+                auto found_value = find_in_chain(key);
+                if (found_value != end()) return found_value->second;
+
+                // Else, super call, which will create and return an empty `any`
+                return unordered_map<string, any>::operator[](key);
+            }
+
+            // Borrow constructor
+            using unordered_map<string, any>::unordered_map;
+    };
+
+    using js_object = Delegating_unordered_map;
+
+    class Callable_delegating_unordered_map : public Delegating_unordered_map {
+        function<any(any, vector<any>)> function_body_;
+
+        public:
+            Callable_delegating_unordered_map(function<any(any, vector<any>)> function_body) :
+                function_body_ {function_body}
+            {}
+
+            auto operator()(any this_ = {}, vector<any> arguments = {}) {
+                return function_body_(this_, arguments);
+            }
+    };
+
+    using js_function = Callable_delegating_unordered_map;
+
+    deferred_heap my_heap;
+
+    auto make_js_object(const js_object& obj = {}) {
+        return my_heap.make<js_object>(obj);
+    }
+
+    auto make_js_function(const js_function& func) {
+        return my_heap.make<js_function>(func);
+    }
+
+    using js_object_ref = deferred_ptr<js_object>;
+    using js_function_ref = deferred_ptr<js_function>;
 }

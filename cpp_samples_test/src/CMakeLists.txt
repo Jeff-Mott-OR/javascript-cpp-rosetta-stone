@@ -1,13 +1,15 @@
 cmake_minimum_required(VERSION 3.8)
 
-find_package(Boost)
+set(Boost_USE_STATIC_LIBS ON)
+find_package(Boost COMPONENTS unit_test_framework)
+
 find_path(GSL_INCLUDE_DIR gsl/gsl)
 find_path(DEFERREDPTR_INCLUDE_DIR deferred_heap.h)
 
 add_executable(main main.cpp)
 set_property(TARGET main PROPERTY CXX_STANDARD 14)
+target_link_libraries(main PRIVATE Boost::boost Boost::unit_test_framework)
 target_include_directories(main PRIVATE
-    "${Boost_INCLUDE_DIRS}"
     "${GSL_INCLUDE_DIR}"
     "${DEFERREDPTR_INCLUDE_DIR}"
 )
