@@ -372,7 +372,7 @@ The way we now call our C++ functions exactly matches JavaScript's `apply`, wher
 
 ## Closures
 
-A closure is a structure containing a function and an environment that stores non-local (free) variables. Or, put another way, a closure is an object with a single member function and private data. When we execute that function, it can access the "captured" variables from the associated environment that was stored in the closure object's private data.
+Conceptually, a closure is a function with non-local variables. The concrete technique we use to implement that concept is a structure containing a function and an environment. Or, put another way, a closure is an object with a single member function and private data. When we execute that function, it can access the "captured" variables from the associated environment that was stored in the closure object's private data.
 
 Depending on the language, we can make the closure object itself callable. You may have already seen callable objects in other languages. Python, for example, lets you define a [`__call__`](https://docs.python.org/3/reference/datamodel.html#object.__call__) method, and PHP has a special [`__invoke`](http://php.net/manual/en/language.oop5.magic.php#object.invoke) method. In C++, we define an [`operator()`](http://en.cppreference.com/w/cpp/language/operators#Function_call_operator) member function. And it's these functions that are executed when an object is called as if it were a function.
 
