@@ -372,7 +372,7 @@ The way we now call our C++ functions exactly matches JavaScript's `apply`, wher
 
 ## Closures
 
-Conceptually, a closure is a function with non-local variables. The concrete technique we use to implement that concept is a structure containing a function and an environment. Or, put another way, a closure is an object with a single member function and private data. When we execute that function, it can access the "captured" variables from the associated environment that was stored in the closure object's private data.
+Conceptually, a closure is a function with non-local ([free](https://en.wikipedia.org/wiki/Free_variables_and_bound_variables)) variables. The concrete technique we use to implement that concept is a structure containing a function and an environment record. Or, put another way, a closure is an object with a single member function and private data. When we execute that function, it can access the "captured" variables from the environment stored in the closure object's private data.
 
 Depending on the language, we can make the closure object itself callable. You may have already seen callable objects in other languages. Python, for example, lets you define a [`__call__`](https://docs.python.org/3/reference/datamodel.html#object.__call__) method, and PHP has a special [`__invoke`](http://php.net/manual/en/language.oop5.magic.php#object.invoke) method. In C++, we define an [`operator()`](http://en.cppreference.com/w/cpp/language/operators#Function_call_operator) member function. And it's these functions that are executed when an object is called as if it were a function.
 
@@ -707,7 +707,178 @@ using js_object_ref = deferred_ptr<js_object>;
 using js_function_ref = deferred_ptr<js_function>;
 ```
 
-You may have noticed I aliased a type name suffixed "ptr" to a name suffixed "ref". Admittedly the terminology here gets a bit awkward. What JavaScript calls a reference behaves like what C++ calls a pointer. C++ also has a feature it calls a reference, but it's different than what JavaScript calls a reference.
+You may notice I aliased a type name with the suffix "ptr" to a name with the suffix "ref". Admittedly the terminology here gets a bit awkward. What JavaScript calls a reference behaves like what C++ calls a pointer. C++ also has a feature it calls a reference, but it's different than what JavaScript calls a reference.
+
+## Classes
+
+JavaScript has a multitude of styles for creating objects, but despite the variety and how different the syntax for each may look, they build on each other in incremental steps.
+
+### Factory functions
+
+The first and simplest way to create a large set of objects that share a common interface and implementation is a factory function. We just create a `js_object` "ex nilo" inside a function and return it. This lets us create the same type of object multiple times and in multiple places just by invoking a function.
+
+###### JavaScript
+```javascript
+function thing() {
+    return {
+        x: 42,
+        y: 3.14,
+        f: function() {},
+        g: function() {}
+    };
+}
+
+let o = thing();
+```
+
+###### C++
+```c++
+auto thing = make_js_function({[] (any this_, vector<any> arguments) {
+    return make_js_object({
+        {"x", 42},
+        {"y", 3.14},
+        {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+        {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+    });
+}});
+
+auto o = (*thing)();
+```
+
+But there's a drawback. This approach can cause memory bloat because each object contains its own unique copy of each function. Ideally we want every object to share just one copy of its functions.
+
+### Prototype chains
+
+We can take advantage of JavaScript's prototypal inheritance and change our factory function so that each object it creates contains only the data unique to that particular object, and delegate all other property requests to a single, shared object.
+
+###### JavaScript
+```javascript
+let thingPrototype = {
+    f: function() {},
+    g: function() {}
+};
+
+function thing() {
+    let o = {
+        x: 42,
+        y: 3.14
+    };
+
+    Object.setPrototypeOf(o, thingPrototype);
+
+    return o;
+}
+
+let o = thing();
+```
+
+###### C++
+```c++
+auto thing_prototype = make_js_object({
+    {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+    {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+});
+
+auto thing = make_js_function({[=] (any this_, vector<any> arguments) {
+    auto o = make_js_object({
+        {"x", 42},
+        {"y", 3.14}
+    });
+
+    o->__proto__ = thing_prototype;
+
+    return o;
+}});
+
+auto o = (*thing)();
+```
+
+In fact, this is such a common pattern in JavaScript that the language has built-in support for it. We don't need to create our own shared object (the prototype object). Instead, a prototype object is created for us automatically, attached to every function under the property name `prototype`, and we can put our shared data there.
+
+###### JavaScript
+```javascript
+function thing() {
+    let o = {
+        x: 42,
+        y: 3.14
+    };
+
+    Object.setPrototypeOf(o, thing.prototype);
+
+    return o;
+}
+
+thing.prototype.f = function() {};
+thing.prototype.g = function() {};
+
+let o = thing();
+```
+
+###### C++
+```c++
+js_function_ref thing = make_js_function({[=] (any this_, vector<any> arguments) {
+    auto o = make_js_object({
+        {"x", 42},
+        {"y", 3.14}
+    });
+
+    o->__proto__ = any_cast<js_object_ref>((*thing)["prototype"]);
+
+    return o;
+}});
+
+(*thing)["prototype"] = make_js_object({
+    {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+    {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+});
+
+auto o = (*thing)();
+```
+
+But there's a drawback. This is going to result in some repetition during object creation in every such delegating-to-prototype-factory-function.
+
+### Constructor functions
+
+JavaScript has some built-in support to isolate the repetition. The `new` keyword will create an object that delegates to some other arbitrary function's prototype. Then it will invoke that function to perform initialization with the newly created object as the `this` argument. And finally it will return the object.
+
+###### JavaScript
+```javascript
+function Thing() {
+    this.x = 42;
+    this.y = 3.14;
+}
+
+Thing.prototype.f = function() {};
+Thing.prototype.g = function() {};
+
+let o = new Thing();
+```
+
+###### C++
+```c++
+auto js_new(js_function_ref constructor, vector<any> arguments = {}) {
+    auto o = make_js_object();
+    o->__proto__ = any_cast<js_object_ref>((*constructor)["prototype"]);
+
+    (*constructor)(o, arguments);
+
+    return o;
+}
+
+auto Thing = make_js_function({[] (any this_, vector<any> arguments) {
+    (*any_cast<js_object_ref>(this_))["x"] = 42;
+    (*any_cast<js_object_ref>(this_))["y"] = 3.14;
+
+    return any{};
+}});
+
+(*Thing)["prototype"] = make_js_object({
+    {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+    {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+});
+
+auto o = js_new(Thing);
+```
 
 ## That's all folks! (...for now)
 

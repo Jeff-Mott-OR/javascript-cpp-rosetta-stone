@@ -488,6 +488,9 @@ namespace garbage_collection {
 
             // Borrow constructor
             using unordered_map<string, any>::unordered_map;
+
+            using unordered_map<string, any>::find;
+            using unordered_map<string, any>::end;
     };
 
     using js_object = Delegating_unordered_map;
@@ -519,4 +522,82 @@ namespace garbage_collection {
 
     using js_object_ref = deferred_ptr<js_object>;
     using js_function_ref = deferred_ptr<js_function>;
+
+    BOOST_AUTO_TEST_CASE(classes_ff_test) {
+        auto thing = make_js_function({[] (any this_, vector<any> arguments) {
+            return make_js_object({
+                {"x", 42},
+                {"y", 3.14},
+                {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+                {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+            });
+        }});
+
+        auto o = (*thing)();
+    }
+
+    BOOST_AUTO_TEST_CASE(classes_delegating_ff_test) {
+        auto thing_prototype = make_js_object({
+            {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+            {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+        });
+
+        auto thing = make_js_function({[=] (any this_, vector<any> arguments) {
+            auto o = make_js_object({
+                {"x", 42},
+                {"y", 3.14}
+            });
+
+            o->__proto__ = thing_prototype;
+
+            return o;
+        }});
+
+        auto o = (*thing)();
+    }
+
+    BOOST_AUTO_TEST_CASE(classes_delegating_to_prototype_ff_test) {
+        js_function_ref thing = make_js_function({[=] (any this_, vector<any> arguments) {
+            auto o = make_js_object({
+                {"x", 42},
+                {"y", 3.14}
+            });
+
+            o->__proto__ = any_cast<js_object_ref>((*thing)["prototype"]);
+
+            return o;
+        }});
+
+        (*thing)["prototype"] = make_js_object({
+            {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+            {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+        });
+
+        auto o = (*thing)();
+    }
+
+    auto js_new(js_function_ref constructor, vector<any> arguments = {}) {
+        auto o = make_js_object();
+        o->__proto__ = any_cast<js_object_ref>((*constructor)["prototype"]);
+
+        (*constructor)(o, arguments);
+
+        return o;
+    }
+
+    BOOST_AUTO_TEST_CASE(classes_new_test) {
+        auto Thing = make_js_function({[] (any this_, vector<any> arguments) {
+            (*any_cast<js_object_ref>(this_))["x"] = 42;
+            (*any_cast<js_object_ref>(this_))["y"] = 3.14;
+
+            return any{};
+        }});
+
+        (*Thing)["prototype"] = make_js_object({
+            {"f", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})},
+            {"g", make_js_function({[] (any this_, vector<any> arguments) { return any{}; }})}
+        });
+
+        auto o = js_new(Thing);
+    }
 }
