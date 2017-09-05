@@ -1,6 +1,32 @@
 # JavaScript/C++ Rosetta Stone
 
-Dynamic languages such as JavaScript can sometimes seem almost magical -- objects out of nothing, reassignable inheritance, functions as values, classes as values -- but now I'm going to strip away that layer of magic. I'm going to peek below the syntactic sugar of the JavaScript language itself and reproduce its behavior closer to the machine, in C++. I'm doing this mostly because I think it's fun and interesting, but for everyone else, this exercise will help JavaScript developers to understand what their language is doing under the hood and let us talk about its behavior in concrete terms rather than in metaphors, and for C++ developers new to JavaScript, this exercise will help to understand the concrete operations that lie beneath such a dynamic language.
+I'm going to reproduce the behavior of the JavaScript language in C++. Lexical scopes, closures, prototypal inheritance, duck typing -- all of it -- in C++. As our languages get further away from the machine, dynamic languages such as JavaScript can sometimes seem almost magical, with features such as objects out of nothing, reassignable inheritance, and functions as values. I'm going to peek below the syntactic sugar of the JavaScript language and reproduce its behavior closer to the machine. I'm doing this mostly because I think it's fun and interesting, but for everyone else, this exercise will help JavaScript developers to understand what their language is doing under the hood and let us talk about its behavior in concrete terms rather than in metaphors. And for developers coming from other languages and new to JavaScript, this exercise will help to understand the concrete operations that lie beneath such a dynamic language.
+
+<!-- MarkdownTOC autolink=true bracket=round style=ordered -->
+
+1. [Dynamic types](#dynamic-types)
+    1. [Variant](#variant)
+    1. [Any](#any)
+1. [Objects](#objects)
+1. [Arrays](#arrays)
+1. [Prototypal inheritance](#prototypal-inheritance)
+1. [Variadic functions](#variadic-functions)
+    1. [Mixed-type arguments](#mixed-type-arguments)
+1. ["This"](#this)
+1. [Closures](#closures)
+1. [Function objects](#function-objects)
+1. [Lexical environment and scope chains](#lexical-environment-and-scope-chains)
+1. [Capture by reference vs by value](#capture-by-reference-vs-by-value)
+    1. [`let` and capturing by value](#let-and-capturing-by-value)
+1. [Garbage collection](#garbage-collection)
+1. [Classes](#classes)
+    1. [Factory functions](#factory-functions)
+    1. [Prototype chains](#prototype-chains)
+    1. [Constructor functions](#constructor-functions)
+1. [That's all folks! \(...for now\)](#thats-all-folks-for-now)
+1. [Copyright](#copyright)
+
+<!-- /MarkdownTOC -->
 
 ## Dynamic types
 
