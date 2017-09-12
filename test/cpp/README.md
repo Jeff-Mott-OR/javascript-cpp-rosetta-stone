@@ -10,12 +10,10 @@ To build and run these tests, you'll need [CMake](https://cmake.org/) and a C++ 
 - On Mac, [Xcode Command Line Tools](https://developer.apple.com/download/more/).
 - And on Linux, [build-essential package](https://packages.ubuntu.com/xenial/build-essential).
 
-## Usage
+## Build and test
 
 ```
-mkdir build
-cd build
-cmake ..
+cmake
 cmake --build . --config Release
 ```
 
